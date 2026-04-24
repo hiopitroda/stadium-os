@@ -4,37 +4,28 @@ on:
   push:
     branches:
       - main
-
-permissions:
-  contents: write
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      # Bumping to v6 (or the latest hash) removes the Node 20 metadata warning
-      - name: Checkout Code
-        uses: actions/checkout@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: '24'
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup Flutter
-        # If subosito hasn't bumped their manifest yet, we use the Node 24 env
-        # but the latest v2 tag is most compatible.
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: 'stable'
-          cache: true
+          flutter-version: stable
 
-      - run: flutter pub get
-      - run: flutter build web --release
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build web
+        run: flutter build web --release
 
       - name: Deploy to GitHub Pages
-        # The v4 tag for peaceiris has been updated to target Node 24 in late 2025/early 2026
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
