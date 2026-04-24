@@ -5,7 +5,6 @@ on:
     branches:
       - main
 
-# Necessary permissions for gh-pages deployment
 permissions:
   contents: write
 
@@ -14,30 +13,28 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Bumping to v6 (or the latest hash) removes the Node 20 metadata warning
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        # Explicitly setting Node 24 ensures the runner environment
-        # is aligned before any JS-based actions execute.
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '24'
 
       - name: Setup Flutter
+        # If subosito hasn't bumped their manifest yet, we use the Node 24 env
+        # but the latest v2 tag is most compatible.
         uses: subosito/flutter-action@v2
         with:
           flutter-version: 'stable'
-          channel: 'stable'
+          cache: true
 
-      - name: Install Dependencies
-        run: flutter pub get
-
-      - name: Build Web
-        # Added --release flag to ensure an optimized production build
-        run: flutter build web --release
+      - run: flutter pub get
+      - run: flutter build web --release
 
       - name: Deploy to GitHub Pages
+        # The v4 tag for peaceiris has been updated to target Node 24 in late 2025/early 2026
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
