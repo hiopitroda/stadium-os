@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 
 void main() {
   runApp(const StadiumOS());
@@ -27,15 +29,16 @@ class StadiumOS extends StatelessWidget {
 class Zone {
   final String name;
   double crowdLevel;
+  final IconData icon;
 
-  Zone({required this.name, required this.crowdLevel});
+  Zone({required this.name, required this.crowdLevel, required this.icon});
 
   int get waitTime => (crowdLevel / 10).round();
 
   Color get color {
-    if (crowdLevel <= 30) return Colors.greenAccent.withOpacity(0.8);
-    if (crowdLevel <= 70) return Colors.orangeAccent.withOpacity(0.8);
-    return Colors.redAccent.withOpacity(0.8);
+    if (crowdLevel <= 30) return Colors.greenAccent;
+    if (crowdLevel <= 70) return Colors.orangeAccent;
+    return Colors.redAccent;
   }
 }
 
@@ -48,167 +51,178 @@ class DashboardPage extends StatefulWidget {
 
 class _DashboardPageState extends State<DashboardPage> {
   late List<Zone> zones;
-  Timer? timer;
+  Timer? dataTimer;
   final Random random = Random();
+
+  // Real-time Weather Data Variables
+  String temperature = "--";
+  String weatherCondition = "Loading...";
+  bool isRaining = false;
 
   @override
   void initState() {
     super.initState();
     zones = [
-      Zone(name: "Gate A", crowdLevel: 20),
-      Zone(name: "Gate B", crowdLevel: 45),
-      Zone(name: "Food Court", crowdLevel: 60),
-      Zone(name: "Washroom", crowdLevel: 15),
-      Zone(name: "Exit Gate", crowdLevel: 10),
-      Zone(name: "Parking", crowdLevel: 30),
+      Zone(name: "Gate A", crowdLevel: 20, icon: Icons.door_front_door),
+      Zone(name: "Gate B", crowdLevel: 45, icon: Icons.sensor_door),
+      Zone(name: "Food Court", crowdLevel: 60, icon: Icons.fastfood),
+      Zone(name: "Washroom", crowdLevel: 15, icon: Icons.wc),
+      Zone(name: "Exit Gate", crowdLevel: 10, icon: Icons.logout),
+      Zone(name: "Parking", crowdLevel: 30, icon: Icons.local_parking),
     ];
 
-    timer = Timer.periodic(const Duration(seconds: 2), (t) => simulateCrowd());
+    // Fetch real weather data immediately
+    fetchLiveWeather();
+
+    // Update crowd and weather every 5 seconds
+    dataTimer = Timer.periodic(const Duration(seconds: 5), (t) {
+      simulateCrowdLogic();
+      fetchLiveWeather();
+    });
   }
 
-  @override
-  void dispose() {
-    timer?.cancel();
-    super.dispose();
+  // AGENTIC DATA FETCH: Calling Open-Meteo API (Ahmedabad Coordinates)
+  Future<void> fetchLiveWeather() async {
+    try {
+      final response = await http.get(Uri.parse(
+          'https://api.open-meteo.com/v1/forecast?latitude=23.0225&longitude=72.5714&current_weather=true'));
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        setState(() {
+          temperature = "${data['current_weather']['temperature']}°C";
+          double code = data['current_weather']['weathercode'].toDouble();
+          // Weather codes > 50 usually mean rain/drizzle
+          isRaining = code > 50;
+          weatherCondition = isRaining ? "Raining" : "Clear Sky";
+        });
+      }
+    } catch (e) {
+      debugPrint("Weather API Error: $e");
+    }
   }
 
-  void simulateCrowd() {
+  void simulateCrowdLogic() {
     setState(() {
       for (var zone in zones) {
-        double fluctuation = zone.name == "Food Court"
-            ? (random.nextDouble() * 30 - 10) // Higher fluctuation
-            : (random.nextDouble() * 10 - 5);
+        double adjustment = (random.nextDouble() * 15 - 7);
 
-        zone.crowdLevel = (zone.crowdLevel + fluctuation).clamp(0, 100);
+        // AGENT REASONING: Influence crowd based on real-time weather
+        if (isRaining && (zone.name == "Food Court" || zone.name == "Washroom")) {
+          adjustment += 10; // People rush indoors if raining
+        }
+        if (!isRaining && zone.name.contains("Gate")) {
+          adjustment += 5; // People move to gates if weather is clear
+        }
+
+        zone.crowdLevel = (zone.crowdLevel + adjustment).clamp(0, 100);
       }
     });
   }
 
   Zone get bestZone => zones.reduce((a, b) => a.crowdLevel < b.crowdLevel ? a : b);
+  Zone? get alertZone => zones.any((z) => z.crowdLevel > 85)
+      ? zones.firstWhere((z) => z.crowdLevel > 85) : null;
 
-  Zone? get alertZone {
-    List<Zone> crowded = zones.where((z) => z.crowdLevel > 80).toList();
-    if (crowded.isEmpty) return null;
-    return crowded.reduce((a, b) => a.crowdLevel > b.crowdLevel ? a : b);
+  @override
+  void dispose() {
+    dataTimer?.cancel();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final activeAlert = alertZone;
-    final suggestion = bestZone;
+    final alert = alertZone;
+    final suggest = bestZone;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        centerTitle: true,
-        title: Column(
-          children: [
-            const Text(
-              "StadiumOS Live Dashboard",
-              style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
-            ),
-            Text(
-              "Powered by AI (simulated)",
-              style: TextStyle(fontSize: 12, color: Colors.blueGrey.shade400),
-            ),
-          ],
-        ),
-      ),
+      backgroundColor: const Color(0xFF020617),
       body: Column(
         children: [
-          // 1. Alert Banner
-          AnimatedOpacity(
-            opacity: activeAlert != null ? 1.0 : 0.0,
-            duration: const Duration(milliseconds: 500),
-            child: Container(
-              width: double.infinity,
-              margin: const EdgeInsets.all(16),
-              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
-              decoration: BoxDecoration(
-                color: Colors.red.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.redAccent, width: 2),
+          // 1. LIVE AGENT STATUS HEADER
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: isRaining ? [Colors.blueGrey.shade900, Colors.blue.shade900] : [Colors.blue.shade900, Colors.indigo.shade900],
               ),
-              child: Row(
-                children: [
-                  const Icon(Icons.warning_amber_rounded, color: Colors.redAccent),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      activeAlert != null
-                          ? "🚨 ${activeAlert.name} is crowded! Go to ${suggestion.name} instead (${suggestion.waitTime} min wait)"
-                          : "",
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                    ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text("StadiumOS • Narendra Modi Stadium", style: TextStyle(color: Colors.white70, fontSize: 12)),
+                    const Text("AI COMMAND CENTER", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(12)),
+                  child: Row(
+                    children: [
+                      Icon(isRaining ? Icons.umbrella : Icons.wb_sunny, color: Colors.orangeAccent),
+                      const SizedBox(width: 10),
+                      Text("$temperature | $weatherCondition", style: const TextStyle(fontWeight: FontWeight.bold)),
+                    ],
                   ),
-                ],
-              ),
+                )
+              ],
             ),
           ),
 
-          // 2. Grid-based Map
+          // 2. EMERGENCY ALERT (Animated)
+          if (alert != null || isRaining)
+            Container(
+              width: double.infinity,
+              color: isRaining ? Colors.blue.withOpacity(0.3) : Colors.red.withOpacity(0.3),
+              padding: const EdgeInsets.all(12),
+              child: Center(
+                child: Text(
+                  isRaining
+                      ? "🌧️ WEATHER ALERT: Rain detected. Directing fans to Indoor Food Court."
+                      : "🚨 CROWD ALERT: ${alert?.name} is at capacity. Redirecting to ${suggest.name}.",
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+              ),
+            ),
+
+          // 3. THE GRID MAP
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0),
+              padding: const EdgeInsets.all(20.0),
               child: GridView.builder(
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 3,
-                  crossAxisSpacing: 16,
-                  mainAxisSpacing: 16,
-                  childAspectRatio: 1.2,
+                    crossAxisCount: 3, crossAxisSpacing: 15, mainAxisSpacing: 15, childAspectRatio: 1.1
                 ),
                 itemCount: zones.length,
                 itemBuilder: (context, index) {
                   final zone = zones[index];
-                  bool isHighRisk = zone.crowdLevel > 80;
-
                   return AnimatedContainer(
-                    duration: const Duration(milliseconds: 500),
+                    duration: const Duration(seconds: 1),
                     decoration: BoxDecoration(
-                      color: zone.color.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: isHighRisk ? Colors.white : zone.color,
-                        width: isHighRisk ? 4 : 1,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: zone.color.withOpacity(0.3),
-                          blurRadius: 10,
-                          spreadRadius: 1,
-                        )
-                      ],
+                      color: const Color(0xFF1E293B),
+                      borderRadius: BorderRadius.circular(15),
+                      border: Border.all(color: zone.color.withOpacity(0.5), width: 2),
+                      boxShadow: [BoxShadow(color: zone.color.withOpacity(0.1), blurRadius: 10)],
                     ),
-                    child: Stack(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Positioned(
-                          right: 10,
-                          top: 10,
-                          child: Icon(Icons.sensors, size: 16, color: zone.color),
-                        ),
-                        Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                zone.name,
-                                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                "${zone.waitTime} min wait",
-                                style: TextStyle(fontSize: 14, color: zone.color),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                "Crowd: ${zone.crowdLevel.toStringAsFixed(0)}%",
-                                style: const TextStyle(fontSize: 10, color: Colors.grey),
-                              ),
-                            ],
+                        Icon(zone.icon, color: zone.color, size: 30),
+                        const SizedBox(height: 10),
+                        Text(zone.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                        Text("${zone.waitTime}m wait", style: TextStyle(color: zone.color, fontSize: 12)),
+                        const SizedBox(height: 10),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 15),
+                          child: LinearProgressIndicator(
+                            value: zone.crowdLevel / 100,
+                            backgroundColor: Colors.white10,
+                            color: zone.color,
+                            borderRadius: BorderRadius.circular(10),
                           ),
-                        ),
+                        )
                       ],
                     ),
                   );
@@ -217,28 +231,34 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
           ),
 
-          // 3. Smart Suggestion Footer
+          // 4. AGENTIC REASONING FOOTER
           Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 20)],
-            ),
+            padding: const EdgeInsets.all(20),
+            color: const Color(0xFF0F172A),
             child: SafeArea(
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.auto_awesome, color: Colors.blueAccent),
-                  const SizedBox(width: 12),
-                  Text(
-                    "Smart Suggestion: Go to ${suggestion.name} – shortest wait",
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-                  ),
+                  const CircleAvatar(backgroundColor: Colors.blueAccent, child: Icon(Icons.psychology, color: Colors.white)),
+                  const SizedBox(width: 15),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text("AGENT REASONING", style: TextStyle(fontSize: 10, color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+                        Text(
+                          isRaining
+                              ? "Atmospheric sensors detected precipitation. Optimizing indoor zone capacity."
+                              : "Flow Analysis: ${suggest.name} is currently the most efficient zone for fan movement.",
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  )
                 ],
               ),
             ),
-          ),
+          )
         ],
       ),
     );
